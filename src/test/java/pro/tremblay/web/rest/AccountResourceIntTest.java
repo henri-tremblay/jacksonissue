@@ -9,6 +9,7 @@ import pro.tremblay.security.AuthoritiesConstants;
 import pro.tremblay.service.MailService;
 import pro.tremblay.service.UserService;
 import pro.tremblay.service.dto.UserDTO;
+import pro.tremblay.web.rest.errors.ExceptionTranslator;
 import pro.tremblay.web.rest.vm.KeyAndPasswordVM;
 import pro.tremblay.web.rest.vm.ManagedUserVM;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -25,8 +26,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.junit4.SpringRunner;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
+import org.zalando.problem.Problem;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -50,6 +55,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @RunWith(SpringRunner.class)
 @SpringBootTest(classes = StuffApp.class)
 public class AccountResourceIntTest {
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private ExceptionTranslator exceptionTranslator;
 
     @Autowired
     private UserRepository userRepository;
@@ -88,9 +99,12 @@ public class AccountResourceIntTest {
             new AccountResource(userRepository, mockUserService, mockMailService);
 
         this.restMvc = MockMvcBuilders.standaloneSetup(accountResource)
+            .setControllerAdvice(exceptionTranslator)
             .setMessageConverters(httpMessageConverters)
             .build();
-        this.restUserMockMvc = MockMvcBuilders.standaloneSetup(accountUserMockResource).build();
+        this.restUserMockMvc = MockMvcBuilders.standaloneSetup(accountUserMockResource)
+            .setControllerAdvice(exceptionTranslator)
+            .build();
     }
 
     @Test
@@ -200,11 +214,14 @@ public class AccountResourceIntTest {
             null,                   // lastModifiedDate
             new HashSet<>(Collections.singletonList(AuthoritiesConstants.USER)));
 
-        restUserMockMvc.perform(
+        MvcResult result = restUserMockMvc.perform(
             post("/api/register")
                 .contentType(TestUtil.APPLICATION_JSON_UTF8)
                 .content(TestUtil.convertObjectToJsonBytes(invalidUser)))
-            .andExpect(status().isBadRequest());
+            .andExpect(status().isBadRequest())
+            .andReturn();
+
+        Problem problem = objectMapper.readValue(result.getResponse().getContentAsByteArray(), Problem.class);
 
         Optional<User> user = userRepository.findOneByEmail("funky@example.com");
         assertThat(user.isPresent()).isFalse();
